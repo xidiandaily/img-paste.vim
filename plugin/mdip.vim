@@ -92,16 +92,26 @@ function! s:SaveFileTMPWin32(imgdir, tmpname) abort
     let tmpfile = a:imgdir . '\' . a:tmpname . '.png'
     let tmpfile = substitute(tmpfile, '\\ ', ' ', 'g')
 
-    let clip_command = "Add-Type -AssemblyName System.Windows.Forms;"
-    let clip_command .= "if ($([System.Windows.Forms.Clipboard]::ContainsImage())) {"
+    let clip_command = "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.IO;"
+    let clip_command .= "if ($([System.Windows.Forms.Clipboard]::ContainsFileDropList())) {"
+    let clip_command .= "$files = [System.Windows.Forms.Clipboard]::GetFileDropList();"
+    let clip_command .= "$sourceFile = $files[0];"
+    let clip_command .= "$targetFile = Join-Path '" . a:imgdir . "' ([System.IO.Path]::GetFileName($sourceFile));"
+    let clip_command .= "Copy-Item $sourceFile -Destination $targetFile -Force; Write-Host $targetFile; exit 0;"
+    let clip_command .= "} elseif ($([System.Windows.Forms.Clipboard]::ContainsImage())) {"
     let clip_command .= "[System.Drawing.Bitmap][System.Windows.Forms.Clipboard]::GetDataObject().getimage().Save('"
-    let clip_command .= tmpfile ."', [System.Drawing.Imaging.ImageFormat]::Png) }"
-    let clip_command = "powershell -nologo -noprofile -noninteractive -sta \"".clip_command. "\""
+    let clip_command .= tmpfile . "', [System.Drawing.Imaging.ImageFormat]::Png); Write-Host '" . tmpfile . "'; exit 0;"
+    let clip_command .= "} else { exit 1; }"
+    let clip_command = "powershell -nologo -noprofile -noninteractive -sta \"" . clip_command . "\""
 
-    silent call system(clip_command)
+    let result = system(clip_command)
     if v:shell_error == 1
         return 1
     else
+        " 返回 PowerShell 输出的路径作为结果
+        let tmpfile = substitute(result, '\n', '', '')
+        let tmpfile = substitute(tmpfile, '\\', '\/', 'g')
+        echom tmpfile
         return tmpfile
     endif
 endfunction
@@ -227,8 +237,8 @@ function! mdip#MarkdownClipboardImage()
         return
     else
         " let relpath = s:SaveNewFile(g:mdip_imgdir, tmpfile)
-        let extension = split(tmpfile, '\.')[-1]
-        let relpath = g:mdip_imgdir_intext . '/' . g:mdip_tmpname . '.' . extension
+        let g:mdip_tmpname = split(tmpfile, '/')[-1]
+        let relpath = g:mdip_imgdir_intext . '/' . g:mdip_tmpname
         if call(get(g:, 'PasteImageFunction'), [relpath])
             return
         endif
